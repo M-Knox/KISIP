@@ -1,0 +1,25 @@
+File:
+  Name: /opt/bbbike/extract/running/2d60705acb40d0baa0ff962566368552/planet_36.693_-1.361_79774958.osm.pbf
+  Format: PBF
+  Compression: none
+  Size: 23111072
+Header:
+  Bounding boxes:
+    (36.664,-1.443,37.079,-1.161)
+  With history: no
+  Options:
+    generator=https://download.BBBike.org
+    osmosis_replication_timestamp=2026-06-11T23:00:00Z
+    pbf_dense_nodes=true
+    pbf_optional_feature_0=Sort.Type_then_ID
+    sorting=Type_then_ID
+    timestamp=2026-06-11T23:00:00Z
+osmium2shape version osmium2shape-1.0
+Memory used for node coordinates storage (approximate):
+  for positive IDs: 272 MiB
+  for negative IDs: 16453 MiB
+Ignoring illegal geometry for way 879515655.
+Ignoring illegal geometry for way 1054686790.
+Ignoring illegal geometry for way 1330415723.
+Ignoring illegal geometry for way 1446668794.
+Ignoring illegal geometry for way 1468459237.

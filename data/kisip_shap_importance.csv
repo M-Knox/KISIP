@@ -1,0 +1,10 @@
+feature,mean_abs_shap
+NDBI,0.012163717
+NDVI,0.0062530944
+Contrast,0.0062110564
+road_density,0.00618839
+Correlation,0.002969001
+MNDWI,0.0026996399
+Entropy,0.002502544
+Homogeneity,0.0019040137
+paved_proportion,0.0
