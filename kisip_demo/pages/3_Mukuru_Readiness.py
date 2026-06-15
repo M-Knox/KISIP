@@ -101,7 +101,11 @@ with col_sel:
     s_preds   = preds[preds["settlement"] == selected].copy()
     s_shap    = shap_df[shap_df["settlement"] == selected].copy() if "settlement" in shap_df.columns else pd.DataFrame()
     s_zones = mukuru_z[mukuru_z["settlement"] == selected].copy()
-    s_zones = s_zones.merge(s_preds[["zone_id","ensemble_scmi"]], on="zone_id", how="left")
+    s_zones = s_zones.merge(
+    s_preds[["zone_id","ensemble_scmi"]],
+    on="zone_id",
+    how="left"
+    )
     mean_pred = s_profile["mean_ensemble_scmi"]
     tier_label, tier_cls, tier_emoji = readiness_tier(mean_pred, kisip_baseline_scmi)
 
