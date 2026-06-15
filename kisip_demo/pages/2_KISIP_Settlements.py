@@ -1,245 +1,248 @@
-import streamlit as st
-import pandas as pd
-import geopandas as gpd
+import sys
+from pathlib import Path
+
+_DEMO = Path(__file__).resolve().parent.parent
+if str(_DEMO) not in sys.path:
+    sys.path.insert(0, str(_DEMO))
+
 import folium
-from streamlit_folium import st_folium
-import plotly.graph_objects as go
+import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
+import streamlit as st
+from streamlit_folium import st_folium
+
+from utils.constants import FEATURES, MODEL_COLUMNS
+from utils.data_loaders import load_kisip_page2_data
+from utils.interpret import (
+    feature_label,
+    is_technical,
+    metric_block,
+    page_explainer,
+    scmi_interpretation,
+    term_label,
+)
+from utils.maps import base_map, direction_color, scmi_color
+from utils.sidebar import render_sidebar
+from utils.styling import inject_styles, page_header, plotly_layout
 
 st.set_page_config(page_title="KISIP Settlements", page_icon="🏘️", layout="wide")
 
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
-html, body, [class*="css"] { font-family: 'Space Grotesk', sans-serif; }
-.page-eyebrow { font-family:'JetBrains Mono',monospace; font-size:0.65rem; letter-spacing:0.18em; color:#4FC3A1; text-transform:uppercase; margin-bottom:0.4rem; }
-.page-title { font-size:1.8rem; font-weight:700; color:#E8EAF0; margin-bottom:0.2rem; }
-.page-sub { font-size:0.9rem; color:#8B95A8; margin-bottom:1.5rem; }
-.info-card { background:#1A1F2E; border:1px solid #252D3D; border-radius:10px; padding:1rem 1.2rem; margin-bottom:0.8rem; }
-.card-label { font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:#8B95A8; text-transform:uppercase; letter-spacing:0.1em; margin-bottom:0.2rem; }
-.card-value { font-size:1.5rem; font-weight:700; color:#4FC3A1; }
-.card-sub { font-size:0.75rem; color:#8B95A8; margin-top:0.1rem; }
-.shap-legend { font-family:'JetBrains Mono',monospace; font-size:0.7rem; color:#8B95A8; margin-top:0.4rem; }
-.feature-tag { display:inline-block; background:rgba(79,195,161,0.1); border:1px solid rgba(79,195,161,0.2); color:#4FC3A1; font-family:'JetBrains Mono',monospace; font-size:0.65rem; padding:2px 7px; border-radius:4px; margin:2px; }
-</style>
-""", unsafe_allow_html=True)
+inject_styles()
+render_sidebar()
 
-# ── Loaders ───────────────────────────────────────────────────────────────────
-@st.cache_data
-def load_data():
-    gdf      = gpd.read_file("data/kisip_zones_spatial.geojson").to_crs("EPSG:4326")
-    preds    = pd.read_csv("data/kisip_model_predictions.csv")
-    shap_set = pd.read_csv("data/kisip_shap_by_settlement.csv")
-    features = pd.read_csv("data/kisip_baseline_features_9final.csv")
-    scmi     = pd.read_csv("data/kisip_zone_scmi_both.csv")
-    return gdf, preds, shap_set, features, scmi
+model_name = st.session_state["selected_model"]
+pred_col = MODEL_COLUMNS[model_name]["kisip"]
 
-gdf, preds, shap_set, features, scmi = load_data()
-
-SHAP_FEATURES  = ["NDVI","NDBI","MNDWI","Contrast","Entropy","Homogeneity","Correlation","road_density","paved_proportion"]
+gdf, preds, shap_set, features, _scmi_df = load_kisip_page2_data()
 KISIP_SETTLEMENTS = sorted(gdf["settlement"].unique().tolist())
 
-# ── Header ────────────────────────────────────────────────────────────────────
-st.markdown('<div class="page-eyebrow">02 / KISIP Treated Settlements</div>', unsafe_allow_html=True)
-st.markdown('<div class="page-title">Zone-Level SCMI & Feature Attribution</div>', unsafe_allow_html=True)
-st.markdown('<div class="page-sub">Observed SCMI (Change Vector Analysis) per 50m grid zone. SHAP values show which features drove change magnitude in each settlement.</div>', unsafe_allow_html=True)
+lead = (
+    "Measured physical change in each treated settlement, and which factors "
+    "the model associated with that change."
+    if not is_technical()
+    else "Zone-level observed SCMI (CVA), model predictions, and XGBoost SHAP attribution."
+)
+
+page_header("02 · KISIP treated", "Change by settlement", lead)
+page_explainer("kisip")
 
 selected = st.selectbox(
-    "Select settlement",
+    "Settlement",
     KISIP_SETTLEMENTS,
     format_func=lambda x: x.replace("_", " "),
 )
 
-s_gdf   = gdf[gdf["settlement"] == selected].copy()
+s_gdf = gdf[gdf["settlement"] == selected].copy()
 s_preds = preds[preds["settlement"] == selected].copy()
-s_shap  = shap_set[shap_set["settlement"] == selected].copy()
+s_shap = shap_set[shap_set["settlement"] == selected].copy()
 s_feats = features[features["settlement"] == selected].copy()
-s_scmi  = scmi[scmi["settlement"] == selected].copy()
 
-mean_scmi    = s_gdf["SCMI"].mean()
-mean_xgb     = s_gdf["xgb_pred"].mean()
-n_zones      = len(s_gdf)
-dominant_feat = s_gdf["dominant_feature"].value_counts().idxmax() if "dominant_feature" in s_gdf.columns else "—"
+s_gdf = s_gdf.merge(
+    s_preds[["zone_id", pred_col]],
+    on="zone_id",
+    how="left",
+)
 
-# ── Layout ────────────────────────────────────────────────────────────────────
+mean_obs = s_gdf["SCMI"].mean()
+mean_pred = s_gdf[pred_col].mean()
+n_zones = len(s_gdf)
+dominant_feat = (
+    s_gdf["dominant_feature"].value_counts().idxmax()
+    if "dominant_feature" in s_gdf.columns
+    else "—"
+)
+
+map_options = (
+    ["Observed change", f"Model prediction ({model_name})", "Surface change direction"]
+    if not is_technical()
+    else ["Observed SCMI (CVA)", f"Prediction ({pred_col})", "CVA direction (°)"]
+)
+map_layer = st.radio("Map view", map_options, horizontal=True, label_visibility="collapsed")
+
 col_map, col_right = st.columns([3, 2], gap="large")
 
 with col_map:
-    st.markdown(f"**Zone SCMI choropleth — {selected.replace('_',' ')}**")
-
     centroid_lat = s_gdf.geometry.centroid.y.mean()
     centroid_lon = s_gdf.geometry.centroid.x.mean()
+    m = base_map((centroid_lat, centroid_lon), zoom=15)
 
-    m = folium.Map(location=[centroid_lat, centroid_lon], zoom_start=15, tiles="CartoDB dark_matter")
+    if map_layer.startswith("Observed") or map_layer.startswith("Observed SCMI"):
+        value_col = "SCMI"
+        vmin, vmax = s_gdf["SCMI"].min(), s_gdf["SCMI"].max()
 
-    scmi_min = s_gdf["SCMI"].min()
-    scmi_max = s_gdf["SCMI"].max()
-    scmi_range = scmi_max - scmi_min if scmi_max != scmi_min else 1
+        def color_fn(v):
+            return scmi_color(v, vmin, vmax)
 
-    def scmi_color(val):
-        t = (val - scmi_min) / scmi_range
-        r = int(255 * t)
-        g = int(195 * (1 - t) + 80 * t)
-        b = int(161 * (1 - t))
-        return f"#{r:02x}{g:02x}{b:02x}"
+        def tooltip(row, val):
+            return (
+                f"<b>{row['zone_id']}</b><br>"
+                f"Observed: <b>{val:.4f}</b><br>"
+                f"{scmi_interpretation(val)}"
+            )
+
+    elif "direction" in map_layer.lower() or "CVA direction" in map_layer:
+        value_col = "CVA_Direction"
+        s_gdf[value_col] = s_gdf.get("CVA_Direction", 0).fillna(0)
+
+        def color_fn(v):
+            return direction_color(v)
+
+        def tooltip(row, val):
+            return f"<b>{row['zone_id']}</b><br>Direction: <b>{val:.1f}°</b>"
+
+    else:
+        value_col = pred_col
+        vmin, vmax = s_gdf[pred_col].min(), s_gdf[pred_col].max()
+
+        def color_fn(v):
+            return scmi_color(v, vmin, vmax)
+
+        def tooltip(row, val):
+            return (
+                f"<b>{row['zone_id']}</b><br>"
+                f"Predicted: <b>{val:.4f}</b><br>"
+                f"Model: {model_name}"
+            )
 
     for _, row in s_gdf.iterrows():
-        scmi_val = row["SCMI"] if pd.notna(row["SCMI"]) else 0
-        xgb_val  = row["xgb_pred"] if pd.notna(row["xgb_pred"]) else 0
-        dom      = row.get("dominant_feature", "—")
+        val = row[value_col] if pd.notna(row.get(value_col)) else 0
+        folium_style = color_fn(val)
         folium.GeoJson(
             row["geometry"].__geo_interface__,
-            style_function=lambda f, c=scmi_color(scmi_val): {
-                "fillColor": c, "color": "#0F1117", "weight": 0.5, "fillOpacity": 0.8,
+            style_function=lambda f, c=folium_style: {
+                "fillColor": c,
+                "color": "#0F1117",
+                "weight": 0.5,
+                "fillOpacity": 0.78,
             },
-            tooltip=folium.Tooltip(
-                f"<b>{row['zone_id']}</b><br>"
-                f"SCMI (obs): <b>{scmi_val:.4f}</b><br>"
-                f"XGBoost pred: <b>{xgb_val:.4f}</b><br>"
-                f"Dominant feature: <b>{dom}</b>",
-                sticky=False,
-            ),
+            tooltip=folium.Tooltip(tooltip(row, val), sticky=False),
         ).add_to(m)
 
-    st_folium(m, width=None, height=480, returned_objects=[])
+    st_folium(m, width=None, height=440, returned_objects=[])
 
-    # SCMI distribution
-    st.markdown("**SCMI distribution across zones**")
+    st.markdown('<div class="section-title">Change across zones</div>', unsafe_allow_html=True)
     hist_fig = px.histogram(
-        s_gdf, x="SCMI", nbins=20,
-        color_discrete_sequence=["#4FC3A1"],
-        labels={"SCMI": "Observed SCMI (CVA)"},
-        height=200,
+        s_gdf,
+        x="SCMI",
+        nbins=20,
+        labels={"SCMI": term_label("SCMI") if is_technical() else "Observed change"},
     )
-    hist_fig.update_layout(
-        margin=dict(l=0, r=0, t=10, b=0),
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(26,31,46,0.6)",
-        font_color="#C5CAD6",
-        bargap=0.05,
-        showlegend=False,
-    )
-    hist_fig.update_xaxes(gridcolor="#252D3D")
-    hist_fig.update_yaxes(gridcolor="#252D3D")
+    hist_fig.update_layout(**plotly_layout(height=180, showlegend=False, bargap=0.05))
+    hist_fig.update_xaxes(gridcolor="rgba(255,255,255,0.06)")
+    hist_fig.update_yaxes(gridcolor="rgba(255,255,255,0.06)")
+    hist_fig.update_traces(marker_color="#4FC3A1")
     st.plotly_chart(hist_fig, use_container_width=True)
 
 with col_right:
-    # ── KPI cards ─────────────────────────────────────────────────────────────
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown(f"""
-        <div class="info-card">
-            <div class="card-label">Mean SCMI (obs)</div>
-            <div class="card-value">{mean_scmi:.4f}</div>
-            <div class="card-sub">CVA magnitude</div>
-        </div>""", unsafe_allow_html=True)
-    with c2:
-        st.markdown(f"""
-        <div class="info-card">
-            <div class="card-label">Mean XGBoost pred</div>
-            <div class="card-value">{mean_xgb:.4f}</div>
-            <div class="card-sub">ensemble output</div>
-        </div>""", unsafe_allow_html=True)
+    obs_label = term_label("SCMI") if is_technical() else "Observed change"
+    pred_label = f"Predicted ({model_name})" if is_technical() else "Model estimate"
 
-    c3, c4 = st.columns(2)
-    with c3:
-        st.markdown(f"""
-        <div class="info-card">
-            <div class="card-label">Zones</div>
-            <div class="card-value">{n_zones}</div>
-            <div class="card-sub">50m grid cells</div>
-        </div>""", unsafe_allow_html=True)
-    with c4:
-        st.markdown(f"""
-        <div class="info-card">
-            <div class="card-label">Top driver</div>
-            <div class="card-value" style="font-size:1rem;margin-top:0.3rem;">{dominant_feat}</div>
-            <div class="card-sub">dominant SHAP feature</div>
-        </div>""", unsafe_allow_html=True)
+    st.markdown(
+        metric_block(obs_label, f"{mean_obs:.4f}", scmi_interpretation(mean_obs)),
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        metric_block(pred_label, f"{mean_pred:.4f}", scmi_interpretation(mean_pred)),
+        unsafe_allow_html=True,
+    )
+    st.markdown(metric_block("Zones", str(n_zones), "50 m grid"), unsafe_allow_html=True)
 
-    # ── SHAP bar chart ────────────────────────────────────────────────────────
-    st.markdown("**Mean SHAP attribution — settlement level**")
+    driver_label = feature_label(dominant_feat) if dominant_feat != "—" else "—"
+    driver_title = "Strongest driver" if not is_technical() else "Top SHAP feature"
+    st.markdown(metric_block(driver_title, driver_label), unsafe_allow_html=True)
+
+    shap_title = (
+        "What drove the prediction?"
+        if not is_technical()
+        else "Mean |SHAP| — XGBoost"
+    )
+    st.markdown(f'<div class="section-title">{shap_title}</div>', unsafe_allow_html=True)
+
     if not s_shap.empty:
-        shap_vals = s_shap[SHAP_FEATURES].mean().abs().sort_values(ascending=True)
+        shap_vals = s_shap[FEATURES].mean().abs().sort_values(ascending=True)
     else:
-        # Fall back to zone-level SHAP cols already in gdf
         shap_cols = [c for c in s_gdf.columns if c.startswith("shap_")]
         shap_vals = s_gdf[shap_cols].mean().abs()
         shap_vals.index = shap_vals.index.str.replace("shap_", "")
         shap_vals = shap_vals.sort_values(ascending=True)
 
-    colors = ["#4FC3A1" if i >= len(shap_vals) - 3 else "#2D8A74"
-              for i in range(len(shap_vals))]
+    y_labels = [feature_label(i) for i in shap_vals.index]
+    top_n = 3
+    colors = [
+        "#4FC3A1" if i >= len(shap_vals) - top_n else "rgba(79,195,161,0.45)"
+        for i in range(len(shap_vals))
+    ]
 
-    shap_fig = go.Figure(go.Bar(
-        x=shap_vals.values,
-        y=shap_vals.index,
-        orientation="h",
-        marker_color=colors,
-        hovertemplate="%{y}: %{x:.4f}<extra></extra>",
-    ))
+    shap_fig = go.Figure(
+        go.Bar(
+            x=shap_vals.values,
+            y=y_labels,
+            orientation="h",
+            marker_color=colors,
+            hovertemplate="%{y}: %{x:.4f}<extra></extra>",
+        )
+    )
     shap_fig.update_layout(
-        height=300,
-        margin=dict(l=0, r=0, t=10, b=0),
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(26,31,46,0.6)",
-        font_color="#C5CAD6",
-        xaxis_title="Mean |SHAP value|",
-        xaxis=dict(gridcolor="#252D3D"),
-        yaxis=dict(gridcolor="rgba(0,0,0,0)"),
+        **plotly_layout(
+            height=280,
+            xaxis_title="Influence" if not is_technical() else "Mean |SHAP|",
+        )
     )
+    shap_fig.update_xaxes(gridcolor="rgba(255,255,255,0.06)")
     st.plotly_chart(shap_fig, use_container_width=True)
-    st.markdown('<div class="shap-legend">Brighter bars = top 3 contributors to SCMI prediction</div>', unsafe_allow_html=True)
 
-    # ── CVA direction summary ─────────────────────────────────────────────────
-    if "CVA_Direction" in s_gdf.columns:
-        st.markdown("**CVA direction (deg) — zone spread**")
-        cva_fig = px.box(
-            s_gdf, y="CVA_Direction",
-            color_discrete_sequence=["#F5A623"],
-            labels={"CVA_Direction": "CVA Direction (°)"},
-            height=180,
-        )
-        cva_fig.update_layout(
-            margin=dict(l=0, r=0, t=10, b=0),
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(26,31,46,0.6)",
-            font_color="#C5CAD6",
-            showlegend=False,
-        )
-        cva_fig.update_yaxes(gridcolor="#252D3D")
-        st.plotly_chart(cva_fig, use_container_width=True)
+    if is_technical():
+        st.caption("SHAP computed for XGBoost. Sidebar model controls predictions only.")
 
-# ── Feature table ─────────────────────────────────────────────────────────────
-with st.expander("Zone feature matrix", expanded=False):
-    display_cols = ["zone_id"] + [c for c in SHAP_FEATURES if c in s_feats.columns]
-    st.dataframe(
-        s_feats[display_cols].set_index("zone_id").round(5),
-        use_container_width=True,
-        height=280,
+if not s_preds.empty and "SCMI" in s_preds.columns and pred_col in s_preds.columns:
+    st.markdown('<div class="section-title">Observed vs predicted</div>', unsafe_allow_html=True)
+    fig_ov = px.scatter(
+        s_preds,
+        x="SCMI",
+        y=pred_col,
+        hover_data=["zone_id"],
+        labels={
+            "SCMI": term_label("SCMI") if is_technical() else "Observed",
+            pred_col: "Predicted",
+        },
     )
+    fig_ov.add_shape(
+        type="line",
+        x0=s_preds["SCMI"].min(),
+        x1=s_preds["SCMI"].max(),
+        y0=s_preds["SCMI"].min(),
+        y1=s_preds["SCMI"].max(),
+        line=dict(color="rgba(255,255,255,0.25)", width=1, dash="dash"),
+    )
+    fig_ov.update_layout(**plotly_layout(height=300))
+    fig_ov.update_traces(marker_color="#4FC3A1")
+    fig_ov.update_xaxes(gridcolor="rgba(255,255,255,0.06)")
+    fig_ov.update_yaxes(gridcolor="rgba(255,255,255,0.06)")
+    st.plotly_chart(fig_ov, use_container_width=True)
 
-# ── Obs vs Pred scatter ───────────────────────────────────────────────────────
-if not s_preds.empty and "SCMI" in s_preds.columns and "xgb_pred" in s_preds.columns:
-    with st.expander("Observed vs predicted SCMI scatter", expanded=False):
-        fig_ov = px.scatter(
-            s_preds, x="SCMI", y="xgb_pred",
-            hover_data=["zone_id"],
-            color_discrete_sequence=["#4FC3A1"],
-            labels={"SCMI": "Observed SCMI", "xgb_pred": "XGBoost Prediction"},
-            height=320,
-        )
-        fig_ov.add_shape(type="line",
-            x0=s_preds["SCMI"].min(), x1=s_preds["SCMI"].max(),
-            y0=s_preds["SCMI"].min(), y1=s_preds["SCMI"].max(),
-            line=dict(color="#F5A623", width=1.5, dash="dash"))
-        fig_ov.update_layout(
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(26,31,46,0.6)",
-            font_color="#C5CAD6",
-            margin=dict(l=0, r=0, t=10, b=0),
-        )
-        fig_ov.update_xaxes(gridcolor="#252D3D")
-        fig_ov.update_yaxes(gridcolor="#252D3D")
-        st.plotly_chart(fig_ov, use_container_width=True)
-        st.caption("Dashed line = perfect prediction. Points above = over-prediction; below = under-prediction.")
+with st.expander("Zone feature data", expanded=False):
+    display_cols = ["zone_id"] + [c for c in FEATURES if c in s_feats.columns]
+    rename = {c: feature_label(c) for c in FEATURES if c in s_feats.columns}
+    show = s_feats[display_cols].rename(columns=rename).set_index("zone_id").round(5)
+    st.dataframe(show, use_container_width=True, height=260)
