@@ -1,0 +1,78 @@
+# KISIP project dependency and environment summary
+# Primary language used: Python 3.14
+# Additional output/data formats used: CSV, GeoJSON, Shapefile, PNG/JPG
+
+# Core scientific stack
+numpy>=2.4.6
+pandas>=3.0.3
+scipy>=1.17.1
+scikit-learn>=1.9.0
+matplotlib>=3.11.0
+
+# Geospatial and spatial analysis
+geopandas>=1.1.3
+shapely>=2.1.2
+pyproj>=3.7.2
+pyogrio>=0.12.1
+osmnx>=2.1.0
+
+# Machine learning / explainability
+xgboost>=3.2.0
+shap>=0.52.0
+joblib>=1.5.3
+networkx>=3.6.1
+numba>=0.65.1
+
+# Utilities
+requests>=2.34.2
+tqdm>=4.68.2
+python-dateutil>=2.9.0.post0
+packaging>=26.2
+
+# Current output / working directory structure
+# root/
+#   cache/                 # cached intermediate data / API responses
+#   data/  
+ #           data/kisip_analysis_zones_50m.geojson 
+ #           data/kisip_baseline_features.csv 
+  #          data/kisip_baseline_features_9final.csv 
+   #         data/kisip_baseline_features_11.csv 
+    #        data/kisip_cva_vs_pca_comparison.csv 
+     #       data/kisip_model_comparison.csv
+      #       data/kisip_model_predictions.csv 
+#             data/kisip_mukuru_predictions.csv
+ #             data/kisip_mukuru_readiness_profiles.csv 
+ #             data/kisip_mukuru_shap_attribution.csv 
+ #             data/kisip_mukuru_shap_values.csv 
+ #             data/kisip_road_features.csv
+ #              data/kisip_shap_by_settlement.csv 
+ #              data/kisip_shap_importance.csv 
+ #              data/kisip_shap_values.csv 
+ #              data/kisip_zone_features_pre.csv 
+ #              data/kisip_zone_scmi.csv
+ #              data/kisip_zone_scmi_both.csv 
+ #              data/kisip_zones_spatial.geojson
+ #               data/mukuru.cpg 
+ #               data/mukuru.dbf
+ #                data/mukuru.geojson 
+ #                data/mukuru.prj 
+ #                data/mukuru.shp 
+ #                data/mukuru.shx 
+ #                data/mukuru_analysis_zones.geojson
+ #                 data/mukuru_road_features.csv
+ #                  data/mukuru_spectral_features.csv 
+ #                  data/mukuru_zones_spatial.geojson 
+                           # input and analysis outputs (CSV, GeoJSON, Shapefile)
+#   images/                # generated plots and visual outputs
+#   planet/                # Planet imagery / related geospatial assets
+#   KISIP.venv/            # project virtual environment
+#
+# Key project scripts:
+#   cva-vs-pca-comparison.py
+#   feature-matrix-assembly.py
+#   modelling.py
+#   mukuru_road_extraction.py
+#   readiness_profiling_predictions.py
+#   residual-analysis.py
+#   road-feature-extraction.py
+#   spatial-mapping.py
