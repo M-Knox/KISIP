@@ -63,7 +63,6 @@ kisip_gdf  = load_kisip_zones()
 mukuru_gdf = load_mukuru_zones()
 mukuru_preds = load_mukuru_preds()
 
-# Merge Mukuru predictions into zones
 # Merge Mukuru predictions into zones.
 # Drop 'settlement' from preds CSV first — the GDF already has it,
 # and a duplicate causes pandas to create settlement_x / settlement_y.
