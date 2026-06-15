@@ -43,24 +43,22 @@ html, body, [class*="css"] { font-family: 'Space Grotesk', sans-serif; }
 @st.cache_data
 def load_data():
     profiles = pd.read_csv("data/kisip_mukuru_readiness_profiles.csv")
-    preds    = pd.read_csv("data/kisip_mukuru_predictions.csv")
     shap_df  = pd.read_csv("data/kisip_mukuru_shap_attribution.csv")
+    # mukuru_zones_spatial.geojson already has ensemble_scmi, shap_* columns — no CSV merge needed
     mukuru_z = gpd.read_file("data/mukuru_zones_spatial.geojson").to_crs("EPSG:4326")
     kisip_z  = gpd.read_file("data/kisip_zones_spatial.geojson").to_crs("EPSG:4326")
-    return profiles, preds, shap_df, mukuru_z, kisip_z
+    return profiles, shap_df, mukuru_z, kisip_z
 
-profiles, preds, shap_df, mukuru_z, kisip_z = load_data()
+profiles, shap_df, mukuru_z, kisip_z = load_data()
 
-SHAP_FEATURES = ["NDVI","NDBI","MNDWI","Contrast","Entropy","Homogeneity","Correlation","road_density","paved_proportion"]
-MUKURU_SETTLEMENTS = sorted(profiles["settlement"].tolist())
-
+MUKURU_SETTLEMENTS  = sorted(profiles["settlement"].tolist())
 kisip_baseline_scmi = kisip_z["SCMI"].mean()
 
 def readiness_tier(score, baseline):
     ratio = score / baseline if baseline > 0 else 0
-    if ratio >= 0.75:   return "High Readiness",   "tier-high",   "🟢"
-    elif ratio >= 0.45: return "Moderate Readiness","tier-medium", "🟡"
-    else:               return "Low Readiness",     "tier-low",    "🔴"
+    if ratio >= 0.75:   return "High Readiness",    "tier-high",   "🟢"
+    elif ratio >= 0.45: return "Moderate Readiness", "tier-medium", "🟡"
+    else:               return "Low Readiness",      "tier-low",    "🔴"
 
 # ── Header ────────────────────────────────────────────────────────────────────
 st.markdown('<div class="page-eyebrow">03 / Mukuru Readiness Profiles</div>', unsafe_allow_html=True)
@@ -98,14 +96,10 @@ with col_sel:
     )
 
     s_profile = profiles[profiles["settlement"] == selected].iloc[0]
-    s_preds   = preds[preds["settlement"] == selected].copy()
-    s_shap    = shap_df[shap_df["settlement"] == selected].copy() if "settlement" in shap_df.columns else pd.DataFrame()
-    s_zones = mukuru_z[mukuru_z["settlement"] == selected].copy()
-    s_zones = s_zones.merge(
-    s_preds[["zone_id","ensemble_scmi"]],
-    on="zone_id",
-    how="left"
-    )
+    # GeoJSON already has ensemble_scmi — filter directly, no merge
+    s_zones   = mukuru_z[mukuru_z["settlement"] == selected].copy()
+    s_shap    = shap_df[shap_df["settlement"] == selected].copy()
+
     mean_pred = s_profile["mean_ensemble_scmi"]
     tier_label, tier_cls, tier_emoji = readiness_tier(mean_pred, kisip_baseline_scmi)
 
@@ -141,8 +135,10 @@ with col_sel:
     with mc1:
         st.markdown(f"**Predicted SCMI map — {selected.replace('_',' ')}**")
         if not s_zones.empty:
-            clat = s_zones.geometry.centroid.y.mean()
-            clon = s_zones.geometry.centroid.x.mean()
+            # Use a projected CRS for centroid calculation, then reproject back
+            centroid = s_zones.to_crs("EPSG:32737").geometry.centroid.to_crs("EPSG:4326")
+            clat = centroid.y.mean()
+            clon = centroid.x.mean()
             mm = folium.Map(location=[clat, clon], zoom_start=15, tiles="CartoDB dark_matter")
 
             scmi_min = s_zones["ensemble_scmi"].min()
@@ -152,9 +148,9 @@ with col_sel:
             for _, row in s_zones.iterrows():
                 sv = row["ensemble_scmi"] if pd.notna(row["ensemble_scmi"]) else 0
                 t  = (sv - scmi_min) / scmi_rng
-                r  = int(245 * t + 79 * (1 - t))
+                r  = int(245 * t + 79  * (1 - t))
                 g  = int(166 * t + 195 * (1 - t))
-                b  = int(35 * t + 161 * (1 - t))
+                b  = int(35  * t + 161 * (1 - t))
                 color = f"#{r:02x}{g:02x}{b:02x}"
                 folium.GeoJson(
                     row["geometry"].__geo_interface__,
@@ -172,17 +168,17 @@ with col_sel:
 
     with mc2:
         st.markdown("**SHAP attribution — settlement mean**")
-        if not s_shap.empty:
-            feat_cols = [c for c in SHAP_FEATURES if c in s_shap.columns]
+        # Use shap_* columns already embedded in the GeoJSON
+        shap_cols = [c for c in s_zones.columns if c.startswith("shap_")]
+        if shap_cols:
+            shap_vals = s_zones[shap_cols].mean().abs().sort_values(ascending=True)
+            shap_vals.index = shap_vals.index.str.replace("shap_", "", regex=False)
+        elif not s_shap.empty:
+            # Fallback: settlement-level CSV (columns are plain feature names)
+            feat_cols = [c for c in s_shap.columns if c != "settlement"]
             shap_vals = s_shap[feat_cols].mean().abs().sort_values(ascending=True)
         else:
-            # Use settlement-level shap from mukuru_shap_attribution (no zone_id col)
-            row_shap = shap_df[shap_df["settlement"] == selected]
-            if not row_shap.empty:
-                feat_cols = [c for c in SHAP_FEATURES if c in row_shap.columns]
-                shap_vals = row_shap[feat_cols].mean().abs().sort_values(ascending=True)
-            else:
-                shap_vals = pd.Series(dtype=float)
+            shap_vals = pd.Series(dtype=float)
 
         if not shap_vals.empty:
             colors = ["#F5A623" if i >= len(shap_vals) - 3 else "#8B5E14"
@@ -210,7 +206,7 @@ with col_sel:
 st.markdown("---")
 st.markdown("**All Mukuru settlements vs KISIP treated baseline**")
 
-comp_data = profiles[["settlement","mean_ensemble_scmi"]].copy()
+comp_data = profiles[["settlement", "mean_ensemble_scmi"]].copy()
 comp_data["label"] = comp_data["settlement"].str.replace("_", " ")
 comp_data = comp_data.sort_values("mean_ensemble_scmi", ascending=True)
 
