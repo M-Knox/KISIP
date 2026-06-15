@@ -64,7 +64,13 @@ mukuru_gdf = load_mukuru_zones()
 mukuru_preds = load_mukuru_preds()
 
 # Merge Mukuru predictions into zones
-mukuru_merged = mukuru_gdf.merge(mukuru_preds[["zone_id","ensemble_scmi","settlement"]], on="zone_id", how="left")
+# Merge Mukuru predictions into zones.
+# Drop 'settlement' from preds CSV first — the GDF already has it,
+# and a duplicate causes pandas to create settlement_x / settlement_y.
+mukuru_merged = mukuru_gdf.merge(
+    mukuru_preds[["zone_id", "ensemble_scmi"]],
+    on="zone_id", how="left"
+)
 # kisip already has SCMI column — rename to ensemble_scmi for uniform treatment
 kisip_plot = kisip_gdf[["zone_id","settlement","SCMI","geometry","type"]].copy()
 kisip_plot = kisip_plot.rename(columns={"SCMI":"ensemble_scmi"})
