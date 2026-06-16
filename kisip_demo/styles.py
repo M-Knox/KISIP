@@ -223,8 +223,26 @@ html, body, [class*="css"] {
 .nav-title { font-size: 0.9rem; font-weight: 500; color: #E2E5EC; }
 .nav-desc  { font-size: 0.8rem; color: #8B95A8; margin-top: 0.1rem; }
 
-/* Account for Streamlit multipage header bar */
-.block-container { padding-top: 3.5rem !important; }
+/* Account for Streamlit multipage header — Cloud uses larger offset */
+.block-container {
+    padding-top: 1rem !important;
+    padding-bottom: 2rem !important;
+}
+
+/* Hide the default top decoration bar that causes the gap */
+header[data-testid="stHeader"] {
+    background: rgba(0,0,0,0) !important;
+    height: 0rem !important;
+}
+
+div[data-testid="stDecoration"] {
+    display: none !important;
+}
+
+/* Pull the main content block up */
+.appview-container .main .block-container {
+    padding-top: 1.5rem !important;
+}
 </style>
 """
 
