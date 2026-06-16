@@ -20,6 +20,7 @@ Satellite remote sensing and machine learning applied to five KISIP Phase 1 trea
 settlements and four Mukuru sites. Spectral indices, texture features, and road
 network data are combined to predict the Settlement Change Magnitude Index (SCMI)
 and generate readiness profiles for future intervention.
+Pre-intervention imagery: 2017–2018 &nbsp;·&nbsp; Post-intervention imagery: 2020 (Sentinel-2 availability constraint).
 </div>
 """, unsafe_allow_html=True)
 
@@ -32,7 +33,7 @@ st.markdown("""
   </div>
   <div class="stat-cell">
     <div class="sc-val">5 <span style="font-size:1rem;font-weight:400;color:#8B95A8">KISIP treated</span></div>
-    <div class="sc-label">Mathare · Korogocho · Mukuru kwa Njenga · Mukuru kwa Reuben · Kibera</div>
+    <div class="sc-label">Mathare · Kayole Soweto · KCC · Kahawa Soweto · Kambi Moto</div>
   </div>
   <div class="stat-cell">
     <div class="sc-val">4 <span style="font-size:1rem;font-weight:400;color:#8B95A8">Mukuru sites</span></div>
@@ -99,7 +100,7 @@ with col_right:
       </div>
       <div style="margin-bottom:0.6rem;">
         <span style="color:#4FC3A1;font-family:'JetBrains Mono',monospace;font-size:0.7rem;">02 &nbsp;</span>
-        Quantify the spatial distribution and magnitude of surface-level change between pre-intervention (2009–2011) and post-intervention (2021–2023).
+        Quantify the spatial distribution and magnitude of surface-level change between pre-intervention (2017–2018) and post-intervention (2020) imagery.
       </div>
       <div style="margin-bottom:0.6rem;">
         <span style="color:#4FC3A1;font-family:'JetBrains Mono',monospace;font-size:0.7rem;">03 &nbsp;</span>

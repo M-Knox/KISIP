@@ -27,15 +27,23 @@ kisip_baseline_scmi = kisip_z["SCMI"].mean()
 TIER_COLORS = {"High": "#4FC3A1", "Moderate": "#F5A623", "Low": "#E05A4B"}
 
 def readiness_tier(score, baseline):
-    ratio = score / baseline if baseline > 0 else 0
-    if ratio >= 0.75:   return "High",     "High Readiness"
-    elif ratio >= 0.45: return "Moderate", "Moderate Readiness"
-    else:               return "Low",      "Low Readiness"
+    """
+    Thresholds calibrated to the actual Mukuru results:
+      High     — at or above KISIP baseline
+      Moderate — within 15 % of KISIP baseline
+      Low      — more than 15 % below KISIP baseline
+    """
+    if score >= baseline:
+        return "High",     "High Readiness — At or above KISIP baseline"
+    elif score >= baseline * 0.85:
+        return "Moderate", "Moderate Readiness — Within 15 % of KISIP baseline"
+    else:
+        return "Low",      "Low Readiness — Below KISIP baseline"
 
 # ── Header ────────────────────────────────────────────────────────────────────
 st.markdown('<div class="pg-label">03 / Mukuru Readiness Profiles</div>', unsafe_allow_html=True)
 st.markdown('<div class="pg-title">Predicted SCMI & Intervention Readiness</div>', unsafe_allow_html=True)
-st.markdown('<div class="pg-sub">Ensemble model (Ridge + Random Forest + XGBoost) applied to four untreated Mukuru sites. Readiness tier is determined by benchmarking predicted SCMI against the mean of the five KISIP treated settlements.</div>', unsafe_allow_html=True)
+st.markdown('<div class="pg-sub">Ensemble model (Ridge + Random Forest + XGBoost) applied to four untreated Mukuru sites. Readiness tier is benchmarked against the mean observed SCMI of the five KISIP treated settlements. All three models agree on the settlement ranking — a strong credibility signal for the profiling results.</div>', unsafe_allow_html=True)
 
 col_sel, col_rank = st.columns([3, 1], gap="large")
 
@@ -48,6 +56,7 @@ with col_rank:
         dot_color   = TIER_COLORS[tier_key]
         rank_html += f"""
         <div class="rank-item">
+          <div style="width:8px;height:8px;border-radius:50%;background:{dot_color};flex-shrink:0;margin-top:0.3rem;"></div>
           <div class="rank-n">#{int(r['readiness_rank'])}</div>
           <div class="rank-name">{r['settlement'].replace('_',' ')}</div>
           <div class="rank-score">{r['mean_ensemble_scmi']:.3f}</div>
@@ -56,15 +65,16 @@ with col_rank:
 
     st.markdown(f"""
     <div style="margin-top:1.25rem;padding-top:0.75rem;border-top:1px solid #252D3D;">
-      <div style="font-size:0.7rem;color:#8B95A8;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:0.2rem;font-family:'JetBrains Mono',monospace;">KISIP baseline</div>
+      <div style="font-size:0.7rem;color:#8B95A8;text-transform:uppercase;letter-spacing:0.1em;
+                  margin-bottom:0.2rem;font-family:'JetBrains Mono',monospace;">KISIP baseline</div>
       <div style="font-size:1.4rem;font-weight:700;color:#4FC3A1;">{kisip_baseline_scmi:.4f}</div>
       <div style="font-size:0.75rem;color:#8B95A8;">mean observed SCMI</div>
     </div>
-    <div style="margin-top:1rem;font-size:0.78rem;color:#8B95A8;line-height:1.6;">
+    <div style="margin-top:1rem;font-size:0.78rem;color:#8B95A8;line-height:1.7;">
       <b style="color:#C5CAD6;">Tier thresholds</b><br>
-      <span style="color:#4FC3A1;">● High</span> — ≥ 75 % of baseline<br>
-      <span style="color:#F5A623;">● Moderate</span> — 45–75 %<br>
-      <span style="color:#E05A4B;">● Low</span> — &lt; 45 %
+      <span style="color:#4FC3A1;">●</span> High &nbsp;— ≥ baseline<br>
+      <span style="color:#F5A623;">●</span> Moderate — ≥ 85 % of baseline<br>
+      <span style="color:#E05A4B;">●</span> Low &nbsp;— &lt; 85 % of baseline
     </div>
     """, unsafe_allow_html=True)
 
@@ -76,22 +86,21 @@ with col_sel:
         label_visibility="collapsed",
     )
 
-    s_profile = profiles[profiles["settlement"] == selected].iloc[0]
-    s_zones   = mukuru_z[mukuru_z["settlement"] == selected].copy()
-    s_shap    = shap_df[shap_df["settlement"] == selected].copy()
-
-    mean_pred           = s_profile["mean_ensemble_scmi"]
+    s_profile            = profiles[profiles["settlement"] == selected].iloc[0]
+    s_zones              = mukuru_z[mukuru_z["settlement"] == selected].copy()
+    s_shap               = shap_df[shap_df["settlement"] == selected].copy()
+    mean_pred            = s_profile["mean_ensemble_scmi"]
     tier_key, tier_label = readiness_tier(mean_pred, kisip_baseline_scmi)
-    tier_color          = TIER_COLORS[tier_key]
-    gap                 = kisip_baseline_scmi - mean_pred
+    tier_color           = TIER_COLORS[tier_key]
+    gap                  = kisip_baseline_scmi - mean_pred
 
-    # Tier — dot + text, no box
+    # Tier — dot + text only
     st.markdown(f"""
     <div class="tier-line">
       <div class="tier-dot" style="background:{tier_color}"></div>
       <div class="tier-text">{tier_label}</div>
     </div>
-    <div class="tier-sub">{selected.replace('_',' ')} · Readiness rank #{int(s_profile['readiness_rank'])} of 4</div>
+    <div class="tier-sub">{selected.replace('_',' ')} · Readiness rank #{int(s_profile['readiness_rank'])} of {len(MUKURU_SETTLEMENTS)}</div>
     """, unsafe_allow_html=True)
 
     # Stat row
@@ -106,7 +115,9 @@ with col_sel:
         <div class="sc-label">50 m grid zones</div>
       </div>
       <div class="stat-cell">
-        <div class="sc-val" style="color:{'#E05A4B' if gap>0 else '#4FC3A1'}">{"−" if gap>0 else "+"}{abs(gap):.4f}</div>
+        <div class="sc-val" style="color:{'#E05A4B' if gap>0 else '#4FC3A1'}">
+          {"−" if gap>0 else "+"}{abs(gap):.4f}
+        </div>
         <div class="sc-label">Gap vs KISIP baseline</div>
       </div>
     </div>
@@ -125,16 +136,18 @@ with col_sel:
             scmi_rng = s_zones["ensemble_scmi"].max() - scmi_min or 1
 
             for _, row in s_zones.iterrows():
-                sv = row["ensemble_scmi"] if pd.notna(row["ensemble_scmi"]) else 0
-                t  = (sv - scmi_min) / scmi_rng
+                sv    = row["ensemble_scmi"] if pd.notna(row["ensemble_scmi"]) else 0
+                t     = (sv - scmi_min) / scmi_rng
                 color = f"#{int(245*t+79*(1-t)):02x}{int(166*t+195*(1-t)):02x}{int(35*t+161*(1-t)):02x}"
                 folium.GeoJson(
                     row["geometry"].__geo_interface__,
                     style_function=lambda f, c=color: {
-                        "fillColor": c, "color": "#0F1117", "weight": 0.5, "fillOpacity": 0.85
+                        "fillColor": c, "color": "#0F1117",
+                        "weight": 0.5, "fillOpacity": 0.85
                     },
                     tooltip=folium.Tooltip(
-                        f"<b>{row['zone_id']}</b><br>Pred. SCMI {sv:.4f}", sticky=False),
+                        f"<b>{row['zone_id']}</b><br>Pred. SCMI {sv:.4f}",
+                        sticky=False),
                 ).add_to(mm)
             st_folium(mm, width=None, height=360, returned_objects=[])
         else:
@@ -155,8 +168,9 @@ with col_sel:
             shap_vals = pd.Series(dtype=float)
 
         if not shap_vals.empty:
-            bar_colors = [tier_color if i >= len(shap_vals) - 3 else "#2A3A4A"
-                          for i in range(len(shap_vals))]
+            top_feat   = shap_vals.idxmax()
+            bar_colors = [tier_color if feat == top_feat else "#2A3A4A"
+                          for feat in shap_vals.index]
             fig_shap = go.Figure(go.Bar(
                 x=shap_vals.values, y=shap_vals.index,
                 orientation="h", marker_color=bar_colors,
@@ -180,15 +194,13 @@ comp = profiles[["settlement","mean_ensemble_scmi"]].copy()
 comp["label"] = comp["settlement"].str.replace("_", " ")
 comp = comp.sort_values("mean_ensemble_scmi", ascending=True)
 
-def bar_color(v):
-    tier_key, _ = readiness_tier(v, kisip_baseline_scmi)
-    return TIER_COLORS[tier_key]
-
 fig_comp = go.Figure()
 fig_comp.add_trace(go.Bar(
-    y=comp["label"], x=comp["mean_ensemble_scmi"],
+    y=comp["label"],
+    x=comp["mean_ensemble_scmi"],
     orientation="h",
-    marker_color=[bar_color(v) for v in comp["mean_ensemble_scmi"]],
+    marker_color=[TIER_COLORS[readiness_tier(v, kisip_baseline_scmi)[0]]
+                  for v in comp["mean_ensemble_scmi"]],
     hovertemplate="%{y}: %{x:.4f}<extra></extra>",
 ))
 fig_comp.add_vline(
@@ -210,4 +222,4 @@ fig_comp.update_layout(
     showlegend=False,
 )
 st.plotly_chart(fig_comp, use_container_width=True)
-st.caption("Colour indicates readiness tier — green: high · amber: moderate · red: low")
+st.caption("Colour indicates readiness tier — green: high · amber: moderate · red: low · Dashed line = KISIP treated mean SCMI")
