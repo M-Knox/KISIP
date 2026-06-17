@@ -320,3 +320,191 @@ for ax, (model_name, res) in zip(axes, models_results.items()):
     corr, _ = pearsonr(preds, r)
 
     ax.set_xlabel('Predicted SCMI', fontsize=10)
+    ax.set_ylabel('Residual', fontsize=10)
+    ax.set_title(
+        f'{model_name}\n'
+        f'Pred-Residual correlation: {corr:.4f} '
+        f'({"bias present" if abs(corr) > 0.1 else "no systematic bias"})',
+        fontsize=10
+    )
+
+plt.tight_layout()
+plt.savefig('residual_plot3_vs_predicted.png',
+            dpi=150, bbox_inches='tight')
+plt.close()
+print('Saved: residual_plot3_vs_predicted.png')
+
+# --- Plot 4: Residuals by Settlement (Bias per Settlement) ---
+fig, axes = plt.subplots(1, 3, figsize=(16, 6))
+fig.suptitle(
+    'Residual Distribution by Settlement — LOSO-CV\n'
+    '(Systematic bias per settlement indicates poor generalisation)',
+    fontsize=13, fontweight='bold'
+)
+
+unique_settlements = np.unique(settlements)
+
+for ax, (model_name, res) in zip(axes, models_results.items()):
+    r = res['residuals']
+
+    settlement_residuals = [
+        r[settlements == s] for s in unique_settlements
+    ]
+
+    bp = ax.boxplot(
+        settlement_residuals,
+        label=[s.replace('_', '\n') for s in unique_settlements],
+        patch_artist=True,
+        medianprops=dict(color='black', linewidth=1.5)
+    )
+
+    for patch, settlement in zip(bp['boxes'], unique_settlements):
+        patch.set_facecolor(
+            SETTLEMENT_COLOURS.get(settlement, 'grey')
+        )
+        patch.set_alpha(0.7)
+
+    ax.axhline(0, color='black', linestyle='--',
+               linewidth=1.2, label='Zero residual')
+    ax.axhline(0.05,  color='grey', linestyle=':', linewidth=0.8)
+    ax.axhline(-0.05, color='grey', linestyle=':', linewidth=0.8)
+
+    ax.set_title(model_name, fontsize=11)
+    ax.set_ylabel('Residual', fontsize=10)
+    ax.tick_params(axis='x', labelsize=8)
+    ax.legend(fontsize=8)
+
+plt.tight_layout()
+plt.savefig('residual_plot4_by_settlement.png',
+            dpi=150, bbox_inches='tight')
+plt.close()
+print('Saved: residual_plot4_by_settlement.png')
+
+# --- Plot 5: Q-Q Plot (Normality of Residuals) ---
+fig, axes = plt.subplots(1, 3, figsize=(16, 5))
+fig.suptitle(
+    'Q-Q Plots — Residual Normality Check\n'
+    '(Points on diagonal = normally distributed residuals)',
+    fontsize=13, fontweight='bold'
+)
+
+for ax, (model_name, res) in zip(axes, models_results.items()):
+    r      = res['residuals']
+    colour = COLOURS[model_name]
+
+    stats.probplot(r, dist='norm', plot=ax)
+    ax.get_lines()[0].set(
+        color=colour, alpha=0.5, markersize=3
+    )
+    ax.get_lines()[1].set(color='black', linewidth=1.5)
+    ax.set_title(f'{model_name}', fontsize=11)
+
+plt.tight_layout()
+plt.savefig('residual_plot5_qq.png',
+            dpi=150, bbox_inches='tight')
+plt.close()
+print('Saved: residual_plot5_qq.png')
+
+# --- Plot 6: Error Magnitude per Settlement Heatmap ---
+fig, ax = plt.subplots(figsize=(10, 6))
+
+model_names  = list(models_results.keys())
+mae_matrix   = np.zeros((len(unique_settlements), len(model_names)))
+
+for j, (model_name, res) in enumerate(models_results.items()):
+    fold_df = res['fold_results'].set_index('settlement')
+    for i, settlement in enumerate(unique_settlements):
+        mae_matrix[i, j] = fold_df.loc[settlement, 'mae']
+
+im = ax.imshow(mae_matrix, cmap='RdYlGn_r', aspect='auto')
+ax.set_xticks(range(len(model_names)))
+ax.set_xticklabels(model_names, fontsize=11)
+ax.set_yticks(range(len(unique_settlements)))
+ax.set_yticklabels(unique_settlements, fontsize=10)
+ax.set_title(
+    'MAE per Settlement per Model — LOSO-CV\n'
+    '(Darker = higher error)',
+    fontsize=12, fontweight='bold'
+)
+plt.colorbar(im, ax=ax, label='MAE')
+
+for i in range(len(unique_settlements)):
+    for j in range(len(model_names)):
+        ax.text(
+            j, i, f'{mae_matrix[i,j]:.4f}',
+            ha='center', va='center',
+            fontsize=10, color='black'
+        )
+
+plt.tight_layout()
+plt.savefig('residual_plot6_mae_heatmap.png',
+            dpi=150, bbox_inches='tight')
+plt.close()
+print('Saved: residual_plot6_mae_heatmap.png')
+
+# ================================================================
+# SECTION 5: OUTLIER ANALYSIS
+# Identifies zones with largest prediction errors
+# ================================================================
+print('\n' + '=' * 65)
+print('OUTLIER ANALYSIS — TOP 10 HIGHEST ERROR ZONES (XGBoost)')
+print('=' * 65)
+
+data['xgb_residual'] = xgb_res['residuals']
+data['abs_residual'] = np.abs(data['xgb_residual'])
+
+top_errors = data.nlargest(10, 'abs_residual')[[
+    'zone_id', 'settlement', 'SCMI',
+    'xgb_residual', 'abs_residual',
+    'NDBI', 'NDVI', 'road_density'
+]]
+print(top_errors.to_string(index=False))
+
+# Check if outliers cluster in specific settlements
+print('\nOutlier settlement distribution (top 10% highest error zones):')
+threshold   = data['abs_residual'].quantile(0.90)
+top_10_pct  = data[data['abs_residual'] >= threshold]
+print(top_10_pct['settlement'].value_counts().to_string())
+
+print('\nHigh error zone SCMI values:')
+print(top_10_pct['SCMI'].describe().round(4))
+print('\nLow error zone SCMI values:')
+low_error = data[data['abs_residual'] < data['abs_residual'].quantile(0.10)]
+print(low_error['SCMI'].describe().round(4))
+
+# ================================================================
+# SECTION 6: EXPORT RESIDUAL DATA
+# ================================================================
+data['ridge_residual'] = ridge_res['residuals']
+data['rf_residual']    = rf_res['residuals']
+data['xgb_residual']   = xgb_res['residuals']
+data['ridge_pred']     = ridge_res['predictions']
+data['rf_pred']        = rf_res['predictions']
+data['xgb_pred']       = xgb_res['predictions']
+
+data[[
+    'zone_id', 'settlement', 'SCMI',
+    'ridge_pred', 'rf_pred', 'xgb_pred',
+    'ridge_residual', 'rf_residual', 'xgb_residual'
+]].to_csv('kisip_residuals.csv', index=False)
+
+fold_summary = pd.concat([
+    ridge_res['fold_results'].assign(model='Ridge'),
+    rf_res['fold_results'].assign(model='Random Forest'),
+    xgb_res['fold_results'].assign(model='XGBoost')
+])
+fold_summary.to_csv('kisip_fold_residual_summary.csv', index=False)
+
+print('\n' + '=' * 65)
+print('RESIDUAL ANALYSIS COMPLETE')
+print('=' * 65)
+print('Plots saved:')
+print('  residual_plot1_predicted_vs_actual.png')
+print('  residual_plot2_distribution.png')
+print('  residual_plot3_vs_predicted.png')
+print('  residual_plot4_by_settlement.png')
+print('  residual_plot5_qq.png')
+print('  residual_plot6_mae_heatmap.png')
+print('\nData exports:')
+print('  kisip_residuals.csv')
+print('  kisip_fold_residual_summary.csv')
