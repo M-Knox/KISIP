@@ -11,20 +11,13 @@ from styles import inject_css
 st.set_page_config(page_title="Mukuru Readiness", page_icon="📍", layout="wide")
 inject_css()
 
-# ── Extra CSS specific to this page ──────────────────────────────────────────
 st.markdown("""
 <style>
-/* Score card grid */
-.scorecard-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 0.75rem;
-    margin-bottom: 1rem;
-}
 .scorecard {
     background: #1C2333;
     border-radius: 6px;
     padding: 0.9rem 1rem;
+    margin-bottom: 0.6rem;
 }
 .sc-feature {
     font-family: 'JetBrains Mono', monospace;
@@ -41,12 +34,8 @@ st.markdown("""
     letter-spacing: -0.02em;
     line-height: 1;
 }
-.sc-vs-kisip {
-    font-size: 0.72rem;
-    margin-top: 0.25rem;
-}
-.sc-above { color: #4FC3A1; }
-.sc-below { color: #8B95A8; }
+.sc-above { color: #4FC3A1; font-size: 0.72rem; margin-top: 0.2rem; }
+.sc-below { color: #8B95A8; font-size: 0.72rem; margin-top: 0.2rem; }
 .sc-interp {
     font-size: 0.78rem;
     color: #C5CAD6;
@@ -54,38 +43,6 @@ st.markdown("""
     margin-top: 0.5rem;
     padding-top: 0.5rem;
     border-top: 1px solid #252D3D;
-}
-
-/* Planning signal strip */
-.signal-block {
-    background: #1C2333;
-    border-radius: 6px;
-    padding: 1rem 1.2rem;
-    margin-bottom: 0.75rem;
-}
-.signal-title {
-    font-size: 0.78rem;
-    font-weight: 600;
-    color: #E2E5EC;
-    margin-bottom: 0.3rem;
-}
-.signal-body {
-    font-size: 0.8rem;
-    color: #8B95A8;
-    line-height: 1.6;
-}
-.signal-body b { color: #C5CAD6; }
-
-/* Baseline comparison — neutral, no red/green tier */
-.baseline-pill {
-    display: inline-block;
-    font-size: 0.72rem;
-    font-family: 'JetBrains Mono', monospace;
-    padding: 2px 8px;
-    border-radius: 3px;
-    background: rgba(255,255,255,0.06);
-    color: #8B95A8;
-    margin-left: 0.4rem;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -104,129 +61,106 @@ profiles, preds, mukuru_z, kisip_z, kisip_f = load_data()
 
 MUKURU_SETTLEMENTS  = sorted(profiles["settlement"].tolist())
 kisip_baseline_scmi = kisip_z["SCMI"].mean()
+kisip_feat_means    = kisip_f[["NDVI","NDBI","MNDWI","Contrast","Entropy",
+                                "Homogeneity","Correlation",
+                                "road_density","paved_proportion"]].mean()
 
-# KISIP feature means for benchmarking scorecards
-kisip_feat_means = kisip_f[["NDVI","NDBI","MNDWI","Contrast","Entropy",
-                              "Homogeneity","Correlation",
-                              "road_density","paved_proportion"]].mean()
+# ── Planning interpretations ──────────────────────────────────────────────────
+FEATURE_META = {
+    "NDBI": {
+        "label": "Built-up surface density",
+        "above": ("Dense consolidated built-up fabric detected. Road rehabilitation will "
+                  "involve significant existing structure negotiation rather than greenfield "
+                  "construction. Expect complex alignment decisions on site."),
+        "below": ("Lower built-up consolidation than the KISIP baseline. Upgrading works "
+                  "are likely to involve more open space negotiation but fewer existing "
+                  "structural conflicts. Right-of-way surveying burden is reduced."),
+    },
+    "NDVI": {
+        "label": "Vegetation / green cover",
+        "above": ("Above-average vegetation signals available open land or informal green "
+                  "space — easier clearance for drainage and road alignments, but ecological "
+                  "sensitivity should be assessed during scoping."),
+        "below": ("Sparse vegetation — largely consolidated surface. Vegetation-related "
+                  "clearance is unlikely to be a major surveying task."),
+    },
+    "MNDWI": {
+        "label": "Water surface presence",
+        "above": ("Elevated water index. Drainage infrastructure should be a primary scoping "
+                  "concern. Flood risk mapping and stormwater routing should precede "
+                  "detailed road design."),
+        "below": ("Low water presence relative to baseline. Standard drainage scoping applies; "
+                  "no elevated flood risk signal from spectral data alone."),
+    },
+    "Contrast": {
+        "label": "Surface texture contrast (GLCM)",
+        "above": ("High surface heterogeneity. Drainage and road alignments will vary "
+                  "considerably within the settlement rather than following a uniform pattern. "
+                  "Expect higher within-settlement variability in scoping effort."),
+        "below": ("Relatively uniform surface conditions. Road and drainage alignments are "
+                  "likely more consistent across zones, reducing scoping complexity."),
+    },
+    "Entropy": {
+        "label": "Surface texture entropy (GLCM)",
+        "above": ("High surface disorder — irregular material composition across zones. "
+                  "Material surveys must account for significant variation in existing "
+                  "surface types."),
+        "below": ("More ordered surface composition than baseline. Material conditions are "
+                  "likely more consistent and predictable across zones."),
+    },
+    "Homogeneity": {
+        "label": "Surface texture homogeneity (GLCM)",
+        "above": ("Spatially consistent surface materials detected. Uniform conditions "
+                  "can reduce per-zone scoping time."),
+        "below": ("Surface materials vary considerably. Site surveys should account for "
+                  "within-zone variability in material type."),
+    },
+    "Correlation": {
+        "label": "Texture spatial correlation (GLCM)",
+        "above": ("Existing structures follow more regular spatial arrangements — potentially "
+                  "simplifying layout planning and route alignment."),
+        "below": ("Less spatial regularity than baseline. Settlement layout is more disordered, "
+                  "typically increasing the complexity of route alignment."),
+    },
+    "road_density": {
+        "label": "Road network density",
+        "above": ("Dense informal pathway network already penetrates the settlement. "
+                  "This reduces the access route surveying burden but signals that "
+                  "formalisation — not new construction — is the primary engineering challenge."),
+        "below": ("Sparser road network than the KISIP baseline. Access route creation will "
+                  "require more new construction rather than formalisation of existing paths. "
+                  "Budget and right-of-way implications are higher."),
+    },
+    "paved_proportion": {
+        "label": "Paved road proportion",
+        "above": ("A higher share of paved roads suggests partial formalisation has already "
+                  "occurred. Intervention scope may focus on upgrading remaining unpaved "
+                  "sections rather than full network build-out."),
+        "below": ("Predominantly unpaved network. Full road surfacing will likely form a "
+                  "significant component of the intervention scope and cost estimate."),
+    },
+}
 
-# ── Planning interpretations per feature ─────────────────────────────────────
-def feature_signal(feat, val, kisip_mean):
-    """Return (short label, planning interpretation) for a given feature value."""
-    above = val >= kisip_mean
-    rel   = "above" if above else "below"
-
-    signals = {
-        "NDBI": (
-            "Built-up surface density",
-            f"Value {val:.3f} is {rel} the KISIP treated mean ({kisip_mean:.3f}). "
-            + ("A densely consolidated built-up fabric. Road rehabilitation will involve "
-               "significant existing structure negotiation rather than standard greenfield "
-               "construction. Expect complex alignment decisions on site."
-               if above else
-               "Lower built-up consolidation than the KISIP baseline. Upgrading works "
-               "are likely to involve more open space negotiation but fewer existing "
-               "structural conflicts. Surveying burden for right-of-way is reduced.")
-        ),
-        "NDVI": (
-            "Vegetation / green cover",
-            f"Value {val:.3f} is {rel} the KISIP treated mean ({kisip_mean:.3f}). "
-            + ("Above-average vegetation cover signals available open land or "
-               "informal green space — likely easier clearance for drainage channels "
-               "and road alignments, but ecological sensitivity should be assessed."
-               if above else
-               "Sparse vegetation indicates a largely consolidated surface. "
-               "Vegetation-related clearance is unlikely to be a major surveying task.")
-        ),
-        "MNDWI": (
-            "Water surface presence",
-            f"Value {val:.3f} is {rel} the KISIP treated mean ({kisip_mean:.3f}). "
-            + ("Elevated water index — drainage infrastructure should be a primary "
-               "scoping concern. Flood risk mapping and stormwater routing should be "
-               "conducted before detailed road design."
-               if above else
-               "Low water presence relative to baseline. Standard drainage scoping "
-               "applies; no elevated flood risk signal from spectral data alone.")
-        ),
-        "Contrast": (
-            "Surface texture contrast (GLCM)",
-            f"Value {val:.0f} is {rel} the KISIP treated mean ({kisip_mean:.0f}). "
-            + ("High surface heterogeneity detected. Drainage and road alignments will "
-               "vary considerably within the settlement rather than following a uniform "
-               "pattern. Expect higher within-settlement variability in scoping effort."
-               if above else
-               "Relatively uniform surface conditions. Road and drainage alignments "
-               "are likely more consistent across zones, reducing scoping complexity.")
-        ),
-        "Entropy": (
-            "Surface texture entropy (GLCM)",
-            f"Value {val:.3f} is {rel} the KISIP treated mean ({kisip_mean:.3f}). "
-            + ("High surface disorder — irregular material composition across zones. "
-               "Material surveys will need to account for significant variation in "
-               "existing surface types."
-               if above else
-               "More ordered surface composition than baseline. Material conditions "
-               "are likely more consistent and predictable across zones.")
-        ),
-        "Homogeneity": (
-            "Surface texture homogeneity (GLCM)",
-            f"Value {val:.3f} is {rel} the KISIP treated mean ({kisip_mean:.3f}). "
-            + ("High homogeneity indicates spatially consistent surface materials. "
-               "Uniform conditions can reduce per-zone scoping time."
-               if above else
-               "Lower homogeneity than baseline — surface materials vary considerably. "
-               "Site surveys should account for within-zone variability in material type.")
-        ),
-        "Correlation": (
-            "Texture spatial correlation (GLCM)",
-            f"Value {val:.3f} is {rel} the KISIP treated mean ({kisip_mean:.3f}). "
-            + ("Strong spatial correlation in surface patterns — existing structures "
-               "follow more regular spatial arrangements, potentially simplifying "
-               "layout planning."
-               if above else
-               "Lower spatial regularity than baseline. Settlement layout is less "
-               "ordered, which typically increases the complexity of route alignment.")
-        ),
-        "road_density": (
-            "Road network density",
-            f"Value {val:.0f} m/km² is {rel} the KISIP treated mean ({kisip_mean:.0f} m/km²). "
-            + ("Dense informal pathway network already penetrates the settlement. "
-               "This reduces the surveying burden for access route identification "
-               "but signals that formalisation — not new construction — will be the "
-               "primary engineering challenge."
-               if above else
-               "Sparser road network than the KISIP baseline. Access route creation "
-               "will likely require more new construction rather than formalisation "
-               "of existing paths. Budget and right-of-way implications are higher.")
-        ),
-        "paved_proportion": (
-            "Paved road proportion",
-            f"Value {val:.3f} is {rel} the KISIP treated mean ({kisip_mean:.3f}). "
-            + ("A higher share of paved roads than the baseline suggests partial "
-               "formalisation has already occurred. Intervention scope may focus on "
-               "upgrading remaining unpaved sections rather than full network build-out."
-               if above else
-               "Predominantly unpaved network. Full road surfacing will likely form "
-               "a significant component of the intervention scope and cost estimate.")
-        ),
-    }
-    return signals.get(feat, (feat, f"Value {val:.3f} vs baseline {kisip_mean:.3f}."))
+FEAT_GROUPS = [
+    ("Spectral indices",  ["NDBI", "NDVI", "MNDWI"]),
+    ("Texture features",  ["Contrast", "Entropy", "Homogeneity", "Correlation"]),
+    ("Road network",      ["road_density", "paved_proportion"]),
+]
 
 # ── Header ────────────────────────────────────────────────────────────────────
 st.markdown('<div class="pg-label">03 / Mukuru Readiness Profiles</div>', unsafe_allow_html=True)
 st.markdown('<div class="pg-title">Pre-Intervention Planning Profiles</div>', unsafe_allow_html=True)
 st.markdown("""
 <div class="pg-sub">
-These profiles are a <b style="color:#E2E5EC">planning input tool</b>, not a settlement selection or
-ranking system. Each profile characterises what a surveyor will encounter on arrival and which
+These profiles are a <b style="color:#E2E5EC">planning input tool</b>, not a settlement selection
+or ranking system. Each profile characterises what a surveyor will encounter on arrival and which
 physical dimensions will demand the most intensive scoping attention — drawn from pre-intervention
 satellite features benchmarked against the five KISIP treated settlements.
-All four Mukuru sites require investment; the profiles describe <em>how</em> that investment should
-be scoped, not <em>whether</em> it should occur.
+All four Mukuru sites require investment; the profiles describe <em>how</em> that investment
+should be scoped, not <em>whether</em> it should occur.
 </div>
 """, unsafe_allow_html=True)
 
-# ── Settlement selector ───────────────────────────────────────────────────────
 selected = st.selectbox(
     "Select settlement to profile",
     MUKURU_SETTLEMENTS,
@@ -237,15 +171,13 @@ selected = st.selectbox(
 s_profile = profiles[profiles["settlement"] == selected].iloc[0]
 s_preds   = preds[preds["settlement"] == selected].copy()
 s_zones   = mukuru_z[mukuru_z["settlement"] == selected].copy()
-
 mean_pred = s_profile["mean_ensemble_scmi"]
 n_zones   = int(s_profile["zones"])
-gap       = mean_pred - kisip_baseline_scmi   # positive = above, negative = below
-
-# ── Top stat row ──────────────────────────────────────────────────────────────
+gap       = mean_pred - kisip_baseline_scmi
 direction = "above" if gap >= 0 else "below"
 gap_str   = f"{'+'if gap>=0 else '−'}{abs(gap):.4f}"
 
+# ── Stat row ──────────────────────────────────────────────────────────────────
 st.markdown(f"""
 <div class="stat-row">
   <div class="stat-cell">
@@ -258,20 +190,19 @@ st.markdown(f"""
   </div>
   <div class="stat-cell">
     <div class="sc-val">{gap_str}</div>
-    <div class="sc-label">{direction.capitalize()} baseline · ensemble mean</div>
+    <div class="sc-label">{direction.capitalize()} baseline</div>
   </div>
   <div class="stat-cell">
     <div class="sc-val">{n_zones}</div>
-    <div class="sc-label">50 m grid zones analysed</div>
+    <div class="sc-label">50 m grid zones</div>
   </div>
   <div class="stat-cell">
-    <div class="sc-val" style="font-size:1rem;padding-top:0.3rem;">Ridge · RF · XGBoost</div>
+    <div class="sc-val" style="font-size:0.95rem;padding-top:0.3rem;">Ridge · RF · XGBoost</div>
     <div class="sc-label">All three models agree on ranking</div>
   </div>
 </div>
 """, unsafe_allow_html=True)
 
-# Context sentence
 st.markdown(f"""
 <div style="font-size:0.82rem;color:#8B95A8;margin-bottom:1.25rem;line-height:1.6;">
   A predicted SCMI of <b style="color:#E2E5EC">{mean_pred:.4f}</b> means that if this settlement
@@ -282,71 +213,65 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-col_cards, col_map = st.columns([3, 2], gap="large")
+# ── Three-column layout: scorecards | map | SHAP ─────────────────────────────
+col_cards, col_map = st.columns([2, 3], gap="large")
 
 with col_cards:
-    st.markdown('<div class="section-rule">Feature scorecards — planning signals</div>', unsafe_allow_html=True)
-    st.markdown('<div style="font-size:0.78rem;color:#8B95A8;margin-bottom:0.75rem;">Each card shows the settlement\'s pre-intervention feature value against the KISIP treated mean and translates it into a concrete planning signal.</div>', unsafe_allow_html=True)
-
-    # Primary spectral features
-    FEAT_GROUPS = [
-        ("Spectral indices", ["NDBI","NDVI","MNDWI"]),
-        ("Texture features", ["Contrast","Entropy","Homogeneity","Correlation"]),
-        ("Road network",     ["road_density","paved_proportion"]),
-    ]
+    st.markdown('<div class="section-rule">Feature scorecards</div>', unsafe_allow_html=True)
+    st.markdown('<div style="font-size:0.78rem;color:#8B95A8;margin-bottom:0.75rem;">Pre-intervention feature values benchmarked against the KISIP treated mean, with actionable planning signals for each.</div>', unsafe_allow_html=True)
 
     for group_label, feats in FEAT_GROUPS:
-        st.markdown(f'<div style="font-size:0.7rem;font-weight:600;color:#8B95A8;text-transform:uppercase;letter-spacing:0.1em;margin:0.6rem 0 0.4rem 0;">{group_label}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="font-size:0.68rem;font-weight:600;color:#8B95A8;text-transform:uppercase;letter-spacing:0.1em;margin:0.8rem 0 0.4rem 0;border-bottom:1px solid #252D3D;padding-bottom:0.3rem;">{group_label}</div>', unsafe_allow_html=True)
 
         for feat in feats:
-            col_name = feat  # names match in profiles CSV
-            # Get value from profiles if available, else from preds mean
-            feat_col = f"mean_{feat.lower()}" if f"mean_{feat.lower()}" in s_profile.index else None
-            # Try common naming patterns
+            # Resolve value — check profiles CSV columns first, then preds
+            val = None
             for candidate in [f"mean_{feat}", f"mean_{feat.lower()}", feat]:
                 if candidate in s_profile.index:
                     val = s_profile[candidate]
                     break
-            else:
-                val = s_preds[feat].mean() if feat in s_preds.columns else None
-
+            if val is None and feat in s_preds.columns:
+                val = s_preds[feat].mean()
             if val is None:
                 continue
 
-            kisip_mean = kisip_feat_means.get(feat, None)
+            kisip_mean = kisip_feat_means.get(feat)
             if kisip_mean is None:
                 continue
 
-            above   = val >= kisip_mean
-            rel_txt = f"{'↑' if above else '↓'} {'above' if above else 'below'} KISIP mean ({kisip_mean:.3f if feat not in ['Contrast','road_density'] else '.0f'})"
+            meta  = FEATURE_META.get(feat, {})
+            label = meta.get("label", feat)
+            above = val >= kisip_mean
 
-            # Format display value
-            if feat in ["Contrast", "road_density"]:
-                val_display = f"{val:,.0f}"
-                km_display  = f"{kisip_mean:,.0f}"
-                rel_txt = f"{'↑' if above else '↓'} {'above' if above else 'below'} KISIP mean ({km_display})"
+            # Format values — no f-string nesting, compute strings separately
+            if feat in ("Contrast", "road_density"):
+                val_display  = f"{val:,.0f}"
+                mean_display = f"{kisip_mean:,.0f}"
             else:
-                val_display = f"{val:.3f}"
-                km_display  = f"{kisip_mean:.3f}"
-                rel_txt = f"{'↑' if above else '↓'} {'above' if above else 'below'} KISIP mean ({km_display})"
+                val_display  = f"{val:.3f}"
+                mean_display = f"{kisip_mean:.3f}"
 
-            _, interp = feature_signal(feat, val, kisip_mean)
-            label, _  = feature_signal(feat, val, kisip_mean)
+            arrow    = "↑" if above else "↓"
+            rel_word = "above" if above else "below"
+            rel_txt  = f"{arrow} {rel_word} KISIP mean ({mean_display})"
+            rel_cls  = "sc-above" if above else "sc-below"
+            interp   = meta.get("above" if above else "below", "")
 
             st.markdown(f"""
-            <div class="scorecard" style="margin-bottom:0.6rem;">
+            <div class="scorecard">
               <div class="sc-feature">{label}</div>
-              <div style="display:flex;align-items:baseline;gap:0.75rem;">
+              <div style="display:flex;align-items:baseline;gap:0.75rem;flex-wrap:wrap;">
                 <div class="sc-value">{val_display}</div>
-                <div class="sc-vs-kisip {'sc-above' if above else 'sc-below'}">{rel_txt}</div>
+                <div class="{rel_cls}">{rel_txt}</div>
               </div>
               <div class="sc-interp">{interp}</div>
             </div>
             """, unsafe_allow_html=True)
 
 with col_map:
+    # ── Zone map ──────────────────────────────────────────────────────────────
     st.markdown('<div class="section-rule">Predicted SCMI — zone map</div>', unsafe_allow_html=True)
-    st.markdown('<div style="font-size:0.78rem;color:#8B95A8;margin-bottom:0.5rem;">Spatial distribution of predicted change magnitude across 50 m zones. Darker zones indicate higher predicted SCMI.</div>', unsafe_allow_html=True)
+    st.markdown('<div style="font-size:0.78rem;color:#8B95A8;margin-bottom:0.5rem;">Spatial distribution of predicted change magnitude across 50 m zones. Darker zones indicate higher predicted SCMI. Hover for zone detail.</div>', unsafe_allow_html=True)
 
     if not s_zones.empty:
         centroid = s_zones.to_crs("EPSG:32737").geometry.centroid.to_crs("EPSG:4326")
@@ -359,8 +284,8 @@ with col_map:
         for _, row in s_zones.iterrows():
             sv    = row["ensemble_scmi"] if pd.notna(row["ensemble_scmi"]) else 0
             t     = (sv - scmi_min) / scmi_rng
-            # Neutral teal gradient — no red/green tier signal
-            r_val = int(30  + 80  * t)
+            # Neutral teal gradient — dark to light teal, no red/green tier
+            r_val = int(30  + 49  * t)
             g_val = int(120 + 75  * t)
             b_val = int(140 + 21  * t)
             color = f"#{r_val:02x}{g_val:02x}{b_val:02x}"
@@ -374,13 +299,14 @@ with col_map:
                     f"<b>{row['zone_id']}</b><br>Pred. SCMI {sv:.4f}",
                     sticky=False),
             ).add_to(mm)
-        st_folium(mm, width=None, height=380, returned_objects=[])
+
+        st_folium(mm, width=None, height=360, returned_objects=[])
     else:
         st.info("No zone geometries found for this settlement.")
 
-    # SHAP attribution
+    # ── SHAP attribution ──────────────────────────────────────────────────────
     st.markdown('<div class="section-rule" style="margin-top:1rem;">SHAP attribution</div>', unsafe_allow_html=True)
-    st.markdown('<div style="font-size:0.78rem;color:#8B95A8;margin-bottom:0.5rem;">Which features most influenced the predicted SCMI for this settlement.</div>', unsafe_allow_html=True)
+    st.markdown('<div style="font-size:0.78rem;color:#8B95A8;margin-bottom:0.5rem;">Which pre-intervention features most influenced the predicted SCMI for this settlement.</div>', unsafe_allow_html=True)
 
     shap_cols = [c for c in s_zones.columns if c.startswith("shap_")]
     if shap_cols:
@@ -406,7 +332,7 @@ with col_map:
         )
         st.plotly_chart(fig_shap, use_container_width=True)
 
-# ── All settlements baseline comparison ──────────────────────────────────────
+# ── All settlements comparison ────────────────────────────────────────────────
 st.markdown('<div class="section-rule">All Mukuru sites — predicted SCMI vs KISIP baseline</div>', unsafe_allow_html=True)
 st.markdown('<div style="font-size:0.78rem;color:#8B95A8;margin-bottom:0.75rem;">All four sites require investment. This chart shows predicted change magnitude relative to the KISIP treated reference — not a readiness ranking. Sites below the baseline require a different scoping approach, not a lower investment priority.</div>', unsafe_allow_html=True)
 
@@ -414,7 +340,6 @@ comp = profiles[["settlement","mean_ensemble_scmi"]].copy()
 comp["label"] = comp["settlement"].str.replace("_", " ")
 comp = comp.sort_values("mean_ensemble_scmi", ascending=True)
 
-# Uniform neutral colour — no tier signal
 fig_comp = go.Figure()
 fig_comp.add_trace(go.Bar(
     y=comp["label"],
@@ -443,4 +368,4 @@ fig_comp.update_layout(
     showlegend=False,
 )
 st.plotly_chart(fig_comp, use_container_width=True)
-st.caption("Selected settlement highlighted. Dashed line = KISIP treated mean. All sites below the line are characterised by lower predicted change magnitude — this informs scoping intensity, not investment priority.")
+st.caption("Selected settlement highlighted in teal. Dashed line = KISIP treated mean. Sites below the line are characterised by lower predicted change magnitude — this informs scoping intensity, not investment priority.")
